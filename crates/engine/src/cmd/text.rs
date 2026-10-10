@@ -18,8 +18,9 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("text.insert", "Type Text", [], None, "{text} (\\n = new paragraph, \\u000b = line break)", has_text, insert),
         // Preedit is transient interaction state: never saved, journaled or added to undo.
         cmd!(query "text.preedit", "Preview IME Text", [], None, "{text}", has_doc, preedit),
-        cmd!("text.commit", "Commit IME Text", [], None, "{text}", has_doc, commit),
+        cmd!("text.commit", "Commit IME Text", [], None, "{text, finish?: bool} (finish locally before an application action)", has_doc, commit),
         cmd!(query "text.cancelComposition", "Cancel IME Text", [], None, "{}", has_doc, cancel_composition),
+        cmd!(query "text.dismissComposition", "Dismiss Ended IME Text", [], None, "{} (ordinary input after empty preedit)", has_doc, dismiss_composition),
         cmd!(
             "text.deleteSurrounding",
             "Delete Around IME Text",
@@ -220,7 +221,12 @@ fn preedit(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn commit(s: &mut Session, p: &Value) -> Result<Value> {
     let text = str_param(p, "text").ok_or_else(|| bad("text.commit", "missing `text`"))?;
-    s.commit_text(text)
+    s.commit_text(text, bool_or(p, "finish", false))
+}
+
+fn dismiss_composition(s: &mut Session, _p: &Value) -> Result<Value> {
+    s.dismiss_composition();
+    ok()
 }
 
 fn cancel_composition(s: &mut Session, _p: &Value) -> Result<Value> {

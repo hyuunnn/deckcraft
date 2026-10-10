@@ -4,7 +4,7 @@ DeckCraft aims at full PowerPoint parity — and to be better: faster, open (a d
 format plus PPTX), scriptable by agents (CLI, JSON control channel, MCP), and available everywhere
 (macOS, Windows, Linux, BSD and the web).
 
-## Status (2026-10-10)
+## Status (2026-10-11)
 
 **Working today**
 - Document model: presentations, slides, masters and 11 standard layouts with placeholder inheritance
@@ -20,6 +20,8 @@ format plus PPTX), scriptable by agents (CLI, JSON control channel, MCP), and av
   I18N.1: Korean UI/document fallback (Gothic A1, OFL), including decomposed Hangul;
   native/web IME preedit preview, composition cancellation and single-step commits through
   engine commands. I18N.2: target-change interruption, journal replay and mobile recomposition fixes.
+  I18N.3: preserve composition across application shortcuts, ignore local-commit echoes, and
+  keep ordinary editing keys and new commit-only input working after composition ends.
   Right-to-left and Arabic text: UAX #9 bidi (levels per paragraph, L1/L2 per line, mirrored
   brackets), contextual HarfRust shaping across style runs, `a:latin`/`a:ea`/`a:cs` slots with
   per-cluster fallback through theme script fonts, RTL start edge and bullets, `justLow` kashida,

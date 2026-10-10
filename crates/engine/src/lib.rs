@@ -292,6 +292,7 @@ pub struct Clipboard {
 
 pub struct Session {
     pub(crate) composition: Option<composition::Composition>,
+    pub(crate) retired_composition: Option<composition::RetiredComposition>,
     docs: Vec<DocState>,
     active: Option<usize>,
     pub prefs: Prefs,
@@ -324,6 +325,7 @@ impl Session {
         guard::install_panic_hook();
         Session {
             composition: None,
+            retired_composition: None,
             docs: vec![],
             active: None,
             prefs: Prefs::default(),

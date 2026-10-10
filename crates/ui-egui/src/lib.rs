@@ -601,23 +601,32 @@ impl SlideApp {
             let _ = self.session.execute("text.cancelComposition", &json!({}));
             return;
         }
-        let events = ctx.input(|i| i.events.clone());
-        // IME confirmation/navigation keys can arrive in the same frame as the commit.
-        let ime_frame = events.iter().any(|e| matches!(e, egui::Event::Ime(_)));
-        for e in events {
+        let mut events: std::collections::VecDeque<_> = ctx.input(|i| i.events.clone()).into();
+        let mut cleared_active = false;
+        let mut committed = false;
+        while let Some(e) = events.pop_front() {
             match e {
-                egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
-                    if let Err(e) = self.session.execute("text.preedit", &json!({"text": text})) {
-                        self.set_status(e.to_string());
+                egui::Event::Ime(event) => {
+                    match &event {
+                        egui::ImeEvent::Preedit { text, .. } if !matches!(text.as_str(), "\n" | "\r") => {
+                            if text.is_empty() {
+                                cleared_active |= self.session.composition().is_some();
+                            } else {
+                                cleared_active = false;
+                                committed = false;
+                            }
+                        }
+                        egui::ImeEvent::Commit(text) if !matches!(text.as_str(), "\n" | "\r") => {
+                            if text.is_empty() {
+                                cleared_active |= self.session.composition().is_some();
+                            } else {
+                                cleared_active = false;
+                            }
+                            committed = !text.is_empty();
+                        }
+                        _ => {}
                     }
-                }
-                egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
-                    if let Err(e) = self.session.execute("text.commit", &json!({"text": text})) {
-                        self.set_status(e.to_string());
-                    }
-                }
-                egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => {
-                    if let Err(e) = self.session.execute("text.deleteSurrounding", &json!({"beforeChars": before_chars, "afterChars": after_chars})) {
+                    if let Err(e) = self.canvas_ime(event) {
                         self.set_status(e.to_string());
                     }
                 }
@@ -627,15 +636,24 @@ impl SlideApp {
                     }
                     let _ = self.session.execute("text.cancelComposition", &json!({}));
                 }
-                egui::Event::Text(t) => {
+                egui::Event::Text(t)
                     if self.session.composition().is_none()
-                        && self.session.active().is_some_and(|d| d.selection.text.is_some() || d.selection.shapes.len() == 1)
-                        && let Err(e) = self.session.type_text(&t)
-                    {
+                        && self.session.active().is_some_and(|d| d.selection.text.is_some() || d.selection.shapes.len() == 1) =>
+                {
+                    if let Err(e) = self.session.type_text(&t) {
                         self.set_status(e.to_string());
                     }
+                    committed = false;
+                    cleared_active = false;
                 }
                 egui::Event::Copy => {
+                    match self.finish_canvas_composition(ctx, &mut events) {
+                        Ok(did_commit) => committed |= did_commit,
+                        Err(e) => {
+                            self.set_status(e.to_string());
+                            continue;
+                        }
+                    }
                     if let Ok(v) = self.session.execute("edit.copy", &json!({}))
                         && let Some(t) = v.get("text").and_then(Value::as_str)
                     {
@@ -643,6 +661,13 @@ impl SlideApp {
                     }
                 }
                 egui::Event::Cut => {
+                    match self.finish_canvas_composition(ctx, &mut events) {
+                        Ok(did_commit) => committed |= did_commit,
+                        Err(e) => {
+                            self.set_status(e.to_string());
+                            continue;
+                        }
+                    }
                     if let Ok(v) = self.session.execute("edit.cut", &json!({}))
                         && let Some(t) = v.get("text").and_then(Value::as_str)
                     {
@@ -650,6 +675,13 @@ impl SlideApp {
                     }
                 }
                 egui::Event::Paste(text) => {
+                    match self.finish_canvas_composition(ctx, &mut events) {
+                        Ok(did_commit) => committed |= did_commit,
+                        Err(e) => {
+                            self.set_status(e.to_string());
+                            continue;
+                        }
+                    }
                     // An image on the clipboard (screenshots, copied pictures) becomes a picture.
                     let img = if text.is_empty() { self.services.clipboard_image.as_mut().and_then(|f| f()) } else { None };
                     let r = match img {
@@ -664,14 +696,46 @@ impl SlideApp {
                 }
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     let mods = Mods { shift: modifiers.shift, alt: modifiers.alt, cmd: modifiers.command || modifiers.ctrl };
-                    if !mods.cmd && (ime_frame || self.session.composition().is_some()) {
+                    let editing_key = matches!(
+                        key,
+                        egui::Key::Enter
+                            | egui::Key::Escape
+                            | egui::Key::Backspace
+                            | egui::Key::Delete
+                            | egui::Key::ArrowLeft
+                            | egui::Key::ArrowRight
+                            | egui::Key::ArrowUp
+                            | egui::Key::ArrowDown
+                            | egui::Key::Home
+                            | egui::Key::End
+                            | egui::Key::PageUp
+                            | egui::Key::PageDown
+                            | egui::Key::Tab
+                            | egui::Key::Space
+                    );
+                    let confirmation = key == egui::Key::Enter
+                        && (committed
+                            || events
+                                .iter()
+                                .take_while(|e| matches!(e, egui::Event::Ime(_) | egui::Event::Key { pressed: false, .. }))
+                                .any(|e| matches!(e, egui::Event::Ime(egui::ImeEvent::Commit(t)) if !matches!(t.as_str(), "" | "\n" | "\r"))));
+                    if !mods.cmd && editing_key && (self.session.composition().is_some() || cleared_active || confirmation) {
                         continue;
                     }
-                    if mods.cmd {
-                        if self.session.composition().is_some() {
-                            ctx.memory_mut(|m| m.interrupt_ime());
+                    if mods.cmd || key == egui::Key::F5 || (key == egui::Key::F9 && (mods.shift || mods.alt)) {
+                        match self.finish_canvas_composition(ctx, &mut events) {
+                            Ok(did_commit) => {
+                                committed |= did_commit;
+                                cleared_active = false;
+                            }
+                            Err(e) => {
+                                self.set_status(e.to_string());
+                                continue;
+                            }
                         }
-                        let _ = self.session.execute("text.cancelComposition", &json!({}));
+                    } else {
+                        let _ = self.session.execute("text.dismissComposition", &json!({}));
+                        committed = false;
                     }
                     if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {
                         continue;
@@ -686,6 +750,52 @@ impl SlideApp {
             }
         }
         self.drain_requests();
+    }
+
+    fn canvas_ime(&mut self, event: egui::ImeEvent) -> deckcraft_engine::Result<Value> {
+        match event {
+            egui::ImeEvent::Preedit { text, .. } => self.session.execute("text.preedit", &json!({"text": text})),
+            egui::ImeEvent::Commit(text) => self.session.execute("text.commit", &json!({"text": text})),
+            egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
+                self.session.execute("text.deleteSurrounding", &json!({"beforeChars": before_chars, "afterChars": after_chars}))
+            }
+            _ => Ok(Value::Null),
+        }
+    }
+
+    /// Application actions must see the final text. Prefer a backend commit already queued
+    /// for this composition (it can differ from the preedit during CJK candidate conversion).
+    fn finish_canvas_composition(
+        &mut self,
+        ctx: &egui::Context,
+        events: &mut std::collections::VecDeque<egui::Event>,
+    ) -> deckcraft_engine::Result<bool> {
+        if !self.session.composition_pending() {
+            return Ok(false);
+        }
+        let commit = events
+            .iter()
+            .take_while(|e| matches!(e, egui::Event::Ime(_) | egui::Event::Key { pressed: false, .. }))
+            .position(|e| matches!(e, egui::Event::Ime(egui::ImeEvent::Commit(t)) if !matches!(t.as_str(), "\n" | "\r")));
+        if let Some(index) = commit {
+            let mut committed = false;
+            for _ in 0..=index {
+                if let Some(egui::Event::Ime(event)) = events.pop_front() {
+                    committed |= matches!(&event, egui::ImeEvent::Commit(t) if !matches!(t.as_str(), "" | "\n" | "\r"));
+                    self.canvas_ime(event)?;
+                }
+            }
+            return Ok(committed);
+        }
+        if let Some(composition) = self.session.composition() {
+            let text = composition.text().to_owned();
+            self.session.execute("text.commit", &json!({"text": text, "finish": true}))?;
+            ctx.memory_mut(|m| m.interrupt_ime());
+            Ok(true)
+        } else {
+            self.session.execute("text.dismissComposition", &json!({}))?;
+            Ok(false)
+        }
     }
 
     /// Lay out the whole window.

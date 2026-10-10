@@ -23,8 +23,26 @@ pub struct Composition {
 }
 
 impl Composition {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
     fn matches(&self, st: &DocState) -> bool {
         self.uid == st.uid && self.revision == st.revision && self.selection == st.selection
+    }
+}
+
+/// One backend echo after a local commit. Keep document
+/// identity so an interrupted IME cannot delete or insert into a newly opened document.
+pub(crate) struct RetiredComposition {
+    uid: u64,
+    selection: Selection,
+    text: String,
+}
+
+impl RetiredComposition {
+    fn matches(&self, st: &DocState) -> bool {
+        self.uid == st.uid && self.selection == st.selection
     }
 }
 
@@ -41,6 +59,22 @@ impl Session {
         self.composition.as_ref().is_some_and(|c| !c.cancelled && self.active().is_none_or(|st| !c.matches(st)))
     }
 
+    /// Includes an empty preedit retained for a possible following backend commit.
+    pub fn composition_pending(&self) -> bool {
+        self.composition.as_ref().is_some_and(|c| !c.cancelled && self.active().is_some_and(|st| c.matches(st)))
+    }
+
+    /// An ordinary canvas key after an empty preedit is an explicit end-of-input boundary.
+    /// Target changes and explicit cancellations must still reject all late IME edits.
+    pub(crate) fn dismiss_composition(&mut self) {
+        if self.composition_pending() && self.composition().is_none() {
+            self.composition = None;
+        }
+        if self.composition.is_none() {
+            self.retired_composition = None;
+        }
+    }
+
     pub(crate) fn cancel_composition(&mut self) {
         if let Some(c) = &mut self.composition {
             c.cancelled = true;
@@ -50,12 +84,16 @@ impl Session {
 
     /// Direct text input starts a fresh typing session after native composition was cancelled.
     pub(crate) fn clear_cancelled_composition(&mut self) {
+        self.retired_composition = None;
         if self.composition.as_ref().is_some_and(|c| c.cancelled) {
             self.composition = None;
         }
     }
 
     pub(crate) fn preedit_text(&mut self, text: &str) -> Result<Value> {
+        if matches!(text, "\n" | "\r") {
+            return Ok(json!({"handled": false}));
+        }
         if text.is_empty() {
             // winit sends an empty preedit immediately before Commit. Keep its target so
             // a commit arriving after a selection change cannot edit the new selection.
@@ -68,6 +106,7 @@ impl Session {
         if text.len() > 1 << 20 {
             return Err(crate::cmd::bad("text.preedit", "composition exceeds 1 MiB"));
         }
+        self.retired_composition = None;
         let st = self.doc()?;
         if self.composition_target_changed() {
             return Ok(json!({"handled": false}));
@@ -98,22 +137,41 @@ impl Session {
         Ok(json!({"handled": true}))
     }
 
-    pub(crate) fn commit_text(&mut self, text: &str) -> Result<Value> {
+    pub(crate) fn commit_text(&mut self, text: &str, finish: bool) -> Result<Value> {
         if text.len() > 1 << 20 {
             return Err(crate::cmd::bad("text.commit", "composition exceeds 1 MiB"));
         }
-        let stale = self.composition.as_ref().is_some_and(|c| c.cancelled || self.active().is_none_or(|st| !c.matches(st)));
-        self.composition = None;
-        if stale || text.is_empty() || matches!(text, "\n" | "\r") {
+        // Integrations can send Enter as IME text; the ordinary key owns the line break.
+        if matches!(text, "\n" | "\r") {
             return Ok(json!({"handled": false}));
         }
-        self.type_text(text)
+        if !finish
+            && let Some(retired) = self.retired_composition.take()
+            && (text == retired.text || self.active().is_none_or(|st| !retired.matches(st)))
+        {
+            return Ok(json!({"handled": false}));
+        }
+        // Replay has no preedit. Only a real local composition needs backend echo protection.
+        let locally_finished = finish && self.composition_pending();
+        let stale = self.composition.as_ref().is_some_and(|c| c.cancelled || self.active().is_none_or(|st| !c.matches(st)));
+        self.composition = None;
+        if stale || text.is_empty() {
+            return Ok(json!({"handled": false}));
+        }
+        let result = self.type_text(text)?;
+        if locally_finished && let Some(st) = self.active() {
+            self.retired_composition = Some(RetiredComposition { uid: st.uid, selection: st.selection.clone(), text: text.to_owned() });
+        }
+        Ok(result)
     }
 
     /// Delete committed characters around the selected or composing range, keeping that
     /// range intact. Counts are Unicode scalars and clamp at the text body's boundaries.
     pub(crate) fn delete_surrounding_text(&mut self, before: usize, after: usize) -> Result<Value> {
-        if self.composition.as_ref().is_some_and(|c| c.cancelled) || self.composition_target_changed() {
+        if self.composition.as_ref().is_some_and(|c| c.cancelled)
+            || self.composition_target_changed()
+            || self.retired_composition.as_ref().is_some_and(|c| self.active().is_none_or(|st| !c.matches(st)))
+        {
             return Ok(json!({"handled": false}));
         }
         let pending = self.composition.as_ref().filter(|c| !c.cancelled).map(|c| (c.text.clone(), c.preview_visible));
@@ -144,6 +202,9 @@ impl Session {
             sel.text = Some(ts.clone());
             Ok(())
         })?;
+        // A real same-target correction starts new input; no-op notifications must retain
+        // the echo protection for a composition that was already committed locally.
+        self.retired_composition = None;
         if !ts.notes && ts.cell.is_none() {
             crate::cmd::text::fit_text_box(self, ts.shape)?;
         }
@@ -381,5 +442,85 @@ mod tests {
         s.execute("text.commit", &json!({"text": "한글"})).unwrap();
         s.execute("text.commit", &json!({"text": " 日本語 中文"})).unwrap();
         assert_eq!(text(s.doc().unwrap()), "한글 日本語 中文");
+    }
+
+    #[test]
+    fn locally_finished_commit_ignores_backend_echo_without_extra_undo_or_journal() {
+        let mut s = editing("안");
+        s.execute("text.move", &json!({"to": "end"})).unwrap();
+        s.execute("text.preedit", &json!({"text": "녕"})).unwrap();
+        s.execute("text.commit", &json!({"text": "녕", "finish": true})).unwrap();
+        assert_eq!(text(s.doc().unwrap()), "안녕");
+        let undo = s.doc().unwrap().history.undo.len();
+        let journal = s.journal.len();
+        s.execute("text.preedit", &json!({"text": ""})).unwrap();
+        let result = s.execute("text.commit", &json!({"text": "녕"})).unwrap();
+        assert_eq!(result["handled"], false);
+        assert_eq!(text(s.doc().unwrap()), "안녕");
+        assert_eq!(s.doc().unwrap().history.undo.len(), undo);
+        assert_eq!(s.journal.len(), journal);
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(text(s.doc().unwrap()), "안");
+    }
+
+    #[test]
+    fn mobile_correction_after_local_finish_accepts_replacement() {
+        let mut s = editing("안");
+        s.execute("text.move", &json!({"to": "end"})).unwrap();
+        s.execute("text.preedit", &json!({"text": "요"})).unwrap();
+        s.execute("text.commit", &json!({"text": "요", "finish": true})).unwrap();
+        s.execute("text.deleteSurrounding", &json!({"beforeChars": 1, "afterChars": 0})).unwrap();
+        s.execute("text.commit", &json!({"text": "녕"})).unwrap();
+        assert_eq!(text(s.doc().unwrap()), "안녕");
+        let mut replay = Session::new();
+        for (id, params) in &s.journal {
+            replay.execute(id, params).unwrap();
+        }
+        assert_eq!(replay.doc().unwrap().doc, s.doc().unwrap().doc);
+        assert_eq!(replay.doc().unwrap().selection, s.doc().unwrap().selection);
+    }
+
+    #[test]
+    fn no_op_surrounding_notification_keeps_local_commit_echo_protection() {
+        let mut s = editing("");
+        s.execute("text.preedit", &json!({"text": "요"})).unwrap();
+        s.execute("text.commit", &json!({"text": "요", "finish": true})).unwrap();
+        s.execute("text.deleteSurrounding", &json!({"beforeChars": 0, "afterChars": 0})).unwrap();
+        assert_eq!(s.execute("text.commit", &json!({"text": "요"})).unwrap()["handled"], false);
+        assert_eq!(text(s.doc().unwrap()), "요");
+    }
+
+    #[test]
+    fn dismiss_cannot_release_a_stale_or_cancelled_composition() {
+        for cancelled in [false, true] {
+            let mut s = editing("제목");
+            s.execute("text.preedit", &json!({"text": "ce"})).unwrap();
+            s.execute("text.preedit", &json!({"text": ""})).unwrap();
+            if cancelled {
+                s.execute("text.cancelComposition", &json!({})).unwrap();
+            } else {
+                s.execute("text.move", &json!({"to": "end"})).unwrap();
+            }
+            s.execute("text.dismissComposition", &json!({})).unwrap();
+            assert_eq!(s.execute("text.commit", &json!({"text": "测试"})).unwrap()["handled"], false);
+            assert_eq!(text(s.doc().unwrap()), "제목");
+        }
+    }
+
+    #[test]
+    fn locally_finished_composition_keeps_late_edits_out_of_a_new_document() {
+        for event in ["text.commit", "text.deleteSurrounding"] {
+            let mut s = editing("기존");
+            s.execute("text.preedit", &json!({"text": "ce"})).unwrap();
+            s.execute("text.commit", &json!({"text": "ce", "finish": true})).unwrap();
+            s.execute("file.new", &json!({})).unwrap();
+            let id = s.doc().unwrap().current_slide().unwrap().shapes[0].id;
+            s.execute("text.set", &json!({"id": id, "text": "새 제목"})).unwrap();
+            s.execute("text.edit", &json!({"id": id})).unwrap();
+            let original = s.doc().unwrap().doc.clone();
+            let result = s.execute(event, &json!({"text": "测试", "beforeChars": 2, "afterChars": 0})).unwrap();
+            assert_eq!(result["handled"], false);
+            assert!(Arc::ptr_eq(&original, &s.doc().unwrap().doc));
+        }
     }
 }

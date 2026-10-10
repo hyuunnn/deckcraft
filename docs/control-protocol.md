@@ -30,3 +30,15 @@ Coordinates are slide points (1/72 inch; a 16:9 slide is 960 × 540) unless note
 
 The MCP server (`deckcraft-cli mcp`, see [mcp.md](mcp.md)) wraps the same methods for Claude
 and other agents; `deckcraft-cli app METHOD [JSON]` sends one request from a shell.
+
+### IME composition
+
+Canvas input uses `engine.execute` with `text.preedit {text}`, `text.commit {text}` and
+`text.cancelComposition {}`. Repeated preedit updates replace a disposable canvas preview;
+the saved document, dirty flag, undo history and command journal remain unchanged. A commit
+inserts the final string once and creates one undo step. Empty preedit/commit cancels the preview
+without deleting the original selection. Moving the selection or switching documents invalidates
+a pending composition, so a late commit cannot type into the new target. Native and web input
+methods are enabled while a text-capable canvas selection owns keyboard focus; their candidate
+window is positioned at the rendered caret. Focused UI text fields (notes, dialogs) own their own
+IME events.

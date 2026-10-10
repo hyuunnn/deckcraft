@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cmd;
+pub mod composition;
 pub mod connect;
 pub mod guard;
 pub mod keys;
@@ -290,6 +291,7 @@ pub struct Clipboard {
 }
 
 pub struct Session {
+    pub(crate) composition: Option<composition::Composition>,
     docs: Vec<DocState>,
     active: Option<usize>,
     pub prefs: Prefs,
@@ -321,6 +323,7 @@ impl Session {
     pub fn new() -> Self {
         guard::install_panic_hook();
         Session {
+            composition: None,
             docs: vec![],
             active: None,
             prefs: Prefs::default(),

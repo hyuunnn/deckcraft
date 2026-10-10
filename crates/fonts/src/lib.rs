@@ -203,4 +203,21 @@ mod tests {
             assert_eq!(db.face("Calibri", "Bold").family, "Carlito");
         }
     }
+
+    #[test]
+    fn korean_fallback_covers_hangul_without_system_fonts() {
+        if !CRAFT_FONTS.iter().any(|f| f.family == "NanumGothic") {
+            assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "prepare the Korean fallback before release builds");
+            eprintln!("skipped: run scripts/prepare-korean-font.py with a craft-fonts checkout");
+            return;
+        }
+        let db = FontDb::with_font_dirs(Vec::new());
+        db.set_system_fallback(false);
+        let face = db.cascade(&['안'], &[db.face(DEFAULT_FAMILY, "Regular")], "Regular");
+        assert_eq!(face.family, "NanumGothic");
+        for code in 0xAC00..=0xD7A3 {
+            assert!(char::from_u32(code).is_some_and(|c| face.covers(c)), "missing Hangul syllable U+{code:X}");
+        }
+        assert!(shape(&face, "안녕하세요 한글 제목과 메모", &[], |c| c).iter().all(|g| g.gid != 0));
+    }
 }

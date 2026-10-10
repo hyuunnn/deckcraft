@@ -86,6 +86,8 @@ jobs:
           repository: storytold/craft-fonts
           ref: ${{ env.CRAFT_FONTS_REF }}
           path: craft-fonts
+      - name: Prepare Korean fallback font
+        run: python scripts/prepare-korean-font.py craft-fonts
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
@@ -145,6 +147,8 @@ jobs:
           repository: storytold/craft-fonts
           ref: ${{ env.CRAFT_FONTS_REF }}
           path: craft-fonts
+      - name: Prepare Korean fallback font
+        run: python scripts/prepare-korean-font.py craft-fonts
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -203,6 +207,8 @@ jobs:
           repository: storytold/craft-fonts
           ref: ${{ env.CRAFT_FONTS_REF }}
           path: craft-fonts
+      - name: Prepare Korean fallback font
+        run: python scripts/prepare-korean-font.py craft-fonts
       - name: Install build and packaging tools
         run: |
           sudo apt-get update
@@ -300,6 +306,8 @@ jobs:
           repository: storytold/craft-fonts
           ref: ${{ env.CRAFT_FONTS_REF }}
           path: craft-fonts
+      - name: Prepare Korean fallback font
+        run: python scripts/prepare-korean-font.py craft-fonts
       - name: Build and package in a FreeBSD VM
         uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1
         with:
@@ -345,6 +353,8 @@ jobs:
           repository: storytold/craft-fonts
           ref: ${{ env.CRAFT_FONTS_REF }}
           path: craft-fonts
+      - name: Prepare Korean fallback font
+        run: python scripts/prepare-korean-font.py craft-fonts
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown

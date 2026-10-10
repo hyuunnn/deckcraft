@@ -104,8 +104,17 @@ cargo run --release -p deckcraft-cli -- render --sample --all --scale 1 out/
 ```
 
 Fonts come from [craft-fonts](https://github.com/storytold/craft-fonts): clone it next to this repo
-(`../craft-fonts`) and local builds pick it up automatically; without it DeckCraft uses your system
-fonts.
+(`../craft-fonts`) and local builds pick it up automatically. Prepare the pinned Korean fallback
+before building (the font and OFL licence stay in craft-fonts):
+
+```sh
+git clone https://github.com/storytold/craft-fonts ../craft-fonts
+git -C ../craft-fonts checkout 43913056ce82a3fdad0ef69f6b88d1dc922a8104
+python3 scripts/prepare-korean-font.py ../craft-fonts
+```
+
+CI and release workflows run the same preparation. Without craft-fonts, the document renderer
+can use installed system fonts, but UI fields only have egui's default glyph coverage.
 
 Each [GitHub release](https://github.com/storytold/deckcraft/releases) has ready-made builds, on Linux as
 an AppImage, a `.deb`, an `.rpm` and a tarball. On Gentoo, the community [::snakebyte

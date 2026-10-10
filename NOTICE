@@ -18,7 +18,7 @@ list (author, source, license) is in ATTRIBUTION.md.
 - Builds made with craft-fonts (CRAFT_FONTS_DIR; all official releases) embed the fonts listed in
   ATTRIBUTION.md (Inter, Carlito, Caladea, Liberation, Montserrat, Lato, Open Sans, Roboto,
   Merriweather, Playfair Display, Poppins, Nunito Sans, BIZ UD, Shippori Mincho, Noto Sans
-  Arabic) under the SIL Open Font License 1.1; their licence texts ship with release packages.
+  Arabic, Nanum Gothic) under the SIL Open Font License 1.1; their licence texts ship with release packages.
 
 Code dependencies
 

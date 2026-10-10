@@ -35,6 +35,8 @@ jobs:
           repository: storytold/craft-fonts
           ref: ${{ env.CRAFT_FONTS_REF }}
           path: craft-fonts
+      - name: Prepare Korean fallback font
+        run: python scripts/prepare-korean-font.py craft-fonts
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -51,4 +53,5 @@ jobs:
       - name: cargo xtask ci
         env:
           CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
         run: cargo xtask ci

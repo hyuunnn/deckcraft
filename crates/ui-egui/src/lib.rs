@@ -24,6 +24,9 @@ pub mod theme;
 pub mod thumbs;
 pub mod widgets;
 
+#[cfg(test)]
+mod input_tests;
+
 use std::sync::mpsc::{Receiver, Sender};
 
 use deckcraft_engine::{Mods, Session, UiRequest};
@@ -205,6 +208,7 @@ pub struct SlideApp {
     pub(crate) notes_buf: (u64, usize, String),
     /// Thumbnail pane drag (slide index, current drop index).
     pub(crate) thumb_drag: Option<(usize, usize)>,
+    pub(crate) canvas_input_id: Option<egui::Id>,
 }
 
 impl SlideApp {
@@ -239,6 +243,7 @@ impl SlideApp {
             quit_confirmed: false,
             notes_buf: (0, usize::MAX, String::new()),
             thumb_drag: None,
+            canvas_input_id: None,
         }
     }
 
@@ -589,14 +594,34 @@ impl SlideApp {
 
     /// Keyboard and clipboard for the slide (when no text field has focus).
     fn keyboard(&mut self, ctx: &egui::Context) {
-        if ctx.memory(|m| m.focused().is_some()) || self.dialog.as_ref().is_some_and(|d| d.modal()) || self.palette.is_some() {
+        if ctx.memory(|m| m.focused().is_some_and(|id| Some(id) != self.canvas_input_id))
+            || self.dialog.as_ref().is_some_and(|d| d.modal())
+            || self.palette.is_some()
+        {
+            let _ = self.session.execute("text.cancelComposition", &json!({}));
             return;
         }
         let events = ctx.input(|i| i.events.clone());
+        // IME confirmation/navigation keys can arrive in the same frame as the commit.
+        let ime_frame = events.iter().any(|e| matches!(e, egui::Event::Ime(_)));
         for e in events {
             match e {
+                egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
+                    if let Err(e) = self.session.execute("text.preedit", &json!({"text": text})) {
+                        self.set_status(e.to_string());
+                    }
+                }
+                egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
+                    if let Err(e) = self.session.execute("text.commit", &json!({"text": text})) {
+                        self.set_status(e.to_string());
+                    }
+                }
+                egui::Event::WindowFocused(false) => {
+                    let _ = self.session.execute("text.cancelComposition", &json!({}));
+                }
                 egui::Event::Text(t) => {
-                    if self.session.active().is_some_and(|d| d.selection.text.is_some() || d.selection.shapes.len() == 1)
+                    if self.session.composition().is_none()
+                        && self.session.active().is_some_and(|d| d.selection.text.is_some() || d.selection.shapes.len() == 1)
                         && let Err(e) = self.session.type_text(&t)
                     {
                         self.set_status(e.to_string());
@@ -631,6 +656,12 @@ impl SlideApp {
                 }
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     let mods = Mods { shift: modifiers.shift, alt: modifiers.alt, cmd: modifiers.command || modifiers.ctrl };
+                    if !mods.cmd && (ime_frame || self.session.composition().is_some()) {
+                        continue;
+                    }
+                    if mods.cmd {
+                        let _ = self.session.execute("text.cancelComposition", &json!({}));
+                    }
                     if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {
                         continue;
                     }

@@ -68,6 +68,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     let mut offset: egui::Vec2 = ui.data_mut(|d| d.get_temp(scroll_id).unwrap_or_default());
     let overflow = vec2((content_rect.width() + 56.0 - avail.width()).max(0.0), (content_rect.height() + 56.0 - avail.height()).max(0.0));
     let resp = ui.allocate_rect(avail, Sense::click_and_drag());
+    app.canvas_input_id = Some(resp.id);
     let (wheel, zoom_delta, pinch_pos) = ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
     if resp.hovered() {
         if (zoom_delta - 1.0).abs() > 1e-3 {
@@ -100,7 +101,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     painter.rect_filled(slide_rect.translate(vec2(0.0, 1.5)).expand(1.0), CornerRadius::same(2), t.shadow);
     let ppp = ui.ctx().pixels_per_point();
     let px = ((slide_rect.width() * ppp).round().max(1.0) as u32, (slide_rect.height() * ppp).round().max(1.0) as u32);
-    let st = app.session.active();
+    let st = app.session.composition().map(|c| &c.preview).or_else(|| app.session.active());
     let tex = match st.map(|d| (d.selection.target, d)) {
         Some((Target::Slides, d)) => {
             let idx = d.selection.slide;
@@ -145,6 +146,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     }
     pointer(app, ui, &resp, xf);
     overlays(app, ui, &painter, xf, &t);
+    text_input(app, ui, &resp, xf);
     media_bar(app, ui, xf);
     context_menu(app, &resp);
 }
@@ -322,7 +324,7 @@ fn poly(p: &egui::Painter, pts: [Pos2; 4], stroke: Stroke) {
 }
 
 fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf: Xf, t: &Tokens) {
-    let Some(st) = app.session.active() else { return };
+    let Some(st) = app.session.composition().map(|c| &c.preview).or_else(|| app.session.active()) else { return };
     let sel_stroke = Stroke::new(1.0, t.selection);
     let editing = st.selection.text.clone();
     for id in &st.selection.shapes {
@@ -391,6 +393,11 @@ fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf: Xf, t: &To
         for r in l.selection_rects(deckcraft_text::Pos { para: s0.0, ch: s0.1 }, deckcraft_text::Pos { para: s1.0, ch: s1.1 }) {
             let pts = [Point::new(r.x0, r.y0), Point::new(r.x1, r.y0), Point::new(r.x1, r.y1), Point::new(r.x0, r.y1)].map(|q| xf.to_screen(m * q));
             painter.add(egui::Shape::convex_polygon(pts.to_vec(), t.text_selection, Stroke::NONE));
+        }
+        if let Some(c) = app.session.composition() {
+            for r in l.selection_rects(deckcraft_text::Pos { para: c.start.0, ch: c.start.1 }, deckcraft_text::Pos { para: c.end.0, ch: c.end.1 }) {
+                painter.line_segment([xf.to_screen(m * Point::new(r.x0, r.y1)), xf.to_screen(m * Point::new(r.x1, r.y1))], Stroke::new(1.0, t.caret));
+            }
         }
         if !ts.is_range() {
             let blink = (ui.input(|i| i.time) * 1.6).fract() < 0.6;
@@ -471,6 +478,46 @@ fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf: Xf, t: &To
         let c = theme::to_color32(*color);
         let c = if mode == "highlighter" { c.gamma_multiply(0.45) } else { c };
         painter.add(egui::Shape::line(pts, Stroke::new((*width as f32 * xf.scale).max(1.0), c)));
+    }
+}
+
+/// Advertise an editable canvas to native/web backends; without this winit disables the IME
+/// and Korean keystrokes arrive as separate jamo. Candidate windows follow the rendered caret.
+fn text_input(app: &SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) {
+    if app.dialog.as_ref().is_some_and(|d| d.modal()) || app.palette.is_some() {
+        return;
+    }
+    let Some(st) = app.session.composition().map(|c| &c.preview).or_else(|| app.session.active()) else { return };
+    let ts = st.selection.text.clone().or_else(|| {
+        let id = st.selection.shapes.first().copied().filter(|_| st.selection.shapes.len() == 1)?;
+        st.shape(id).filter(|sh| matches!(sh.kind, deckcraft_model::ShapeKind::Shape | deckcraft_model::ShapeKind::Connector { .. }))?;
+        Some(deckcraft_engine::TextSel { shape: id, ..Default::default() })
+    });
+    let Some(ts) = ts.filter(|t| !t.notes) else { return };
+    let Some(sh) = st.shape(ts.shape) else { return };
+    let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
+    let rect = screen_rect(xf, &x);
+    let mut cursor_rect = Rect::from_min_size(rect.min, vec2(1.0, 18.0 * xf.scale));
+    if let Some(l) = deckcraft_engine::cmd::text::layout_for(st, &ts)
+        && let Some((cx, top, bot)) = l.caret(deckcraft_text::Pos { para: ts.caret.0, ch: ts.caret.1 })
+    {
+        let c = l.inner.center().to_vec2();
+        let rotation =
+            deckcraft_geom::Affine::translate(c) * deckcraft_geom::Affine::rotate(l.rotation.to_radians()) * deckcraft_geom::Affine::translate(-c);
+        let m = x.affine() * rotation;
+        cursor_rect = Rect::from_two_pos(xf.to_screen(m * Point::new(cx, top)), xf.to_screen(m * Point::new(cx, bot))).expand(0.5);
+    }
+    ui.ctx().memory_mut(|m| {
+        if m.focused().is_none() {
+            m.request_focus(resp.id);
+        }
+        m.set_focus_lock_filter(resp.id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true });
+    });
+    if ui.ctx().memory(|m| m.owns_ime_events(resp.id)) {
+        ui.ctx().output_mut(|o| {
+            o.ime = Some(egui::output::IMEOutput { purpose: egui::IMEPurpose::Normal, rect, cursor_rect, should_interrupt_composition: false });
+            o.mutable_text_under_cursor = resp.hovered();
+        });
     }
 }
 

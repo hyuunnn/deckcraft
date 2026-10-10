@@ -16,6 +16,10 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "text.edit", "Edit Text", [], Some("Enter"), "{id?, at?: [paragraph, char], end?: bool, cell?: [row, col], notes?: bool}", has_slide, edit),
         cmd!(noundo "text.exit", "Stop Editing Text", [], None, "{}", has_doc, exit),
         cmd!("text.insert", "Type Text", [], None, "{text} (\\n = new paragraph, \\u000b = line break)", has_text, insert),
+        // Preedit is transient interaction state: never saved, journaled or added to undo.
+        cmd!(query "text.preedit", "Preview IME Text", [], None, "{text}", has_doc, preedit),
+        cmd!("text.commit", "Commit IME Text", [], None, "{text}", has_doc, commit),
+        cmd!(query "text.cancelComposition", "Cancel IME Text", [], None, "{}", has_doc, cancel_composition),
         cmd!("text.delete", "Delete Text", [], Some("Backspace"), "{dir?: backward|forward|wordBackward|wordForward}", has_text, delete),
         cmd!(noundo "text.move", "Move Insertion Point", [], None, "{to: left|right|up|down|wordLeft|wordRight|lineStart|lineEnd|paraStart|paraEnd|start|end, extend?: bool}", has_text, move_caret),
         cmd!(noundo "text.select", "Select Text", [], None, "{anchor: [p, c], caret: [p, c]}", has_text, select),
@@ -47,7 +51,7 @@ pub fn body_of<'a>(st: &'a DocState, t: &TextSel) -> Option<&'a TextBody> {
     sh.text.as_ref()
 }
 
-fn body_mut<'a>(doc: &'a mut Presentation, sel: &Selection, t: &TextSel) -> Option<&'a mut TextBody> {
+pub(crate) fn body_mut<'a>(doc: &'a mut Presentation, sel: &Selection, t: &TextSel) -> Option<&'a mut TextBody> {
     if t.notes {
         return doc.slides.get_mut(sel.slide).map(|s| &mut Arc::make_mut(s).notes);
     }
@@ -197,6 +201,21 @@ fn exit(s: &mut Session, _p: &Value) -> Result<Value> {
             sel.shapes = vec![t.shape];
         }
     })?;
+    ok()
+}
+
+fn preedit(s: &mut Session, p: &Value) -> Result<Value> {
+    let text = str_param(p, "text").ok_or_else(|| bad("text.preedit", "missing `text`"))?;
+    s.preedit_text(text)
+}
+
+fn commit(s: &mut Session, p: &Value) -> Result<Value> {
+    let text = str_param(p, "text").ok_or_else(|| bad("text.commit", "missing `text`"))?;
+    s.commit_text(text)
+}
+
+fn cancel_composition(s: &mut Session, _p: &Value) -> Result<Value> {
+    s.composition = None;
     ok()
 }
 

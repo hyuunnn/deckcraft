@@ -153,14 +153,14 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
     });
 }
 
-/// UI fonts: Inter (from craft-fonts) when embedded, a Japanese UI face for CJK, then egui's.
+/// UI fonts: Inter, then the bundled script fallbacks, then egui's defaults. UI text does not
+/// use the document FontDb: every family (including bold and monospace) needs these fallbacks.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut defs = FontDefinitions::default();
     let mut names = vec![];
     for (i, f) in deckcraft_fonts::CRAFT_FONTS.iter().enumerate() {
         let wanted = (f.family == "Inter" && (f.style == "Regular" || f.style == "SemiBold" || f.style == "Bold"))
-            || (f.family == "BIZ UDPGothic" && f.style == "Regular")
-            || (f.family == "Noto Sans Arabic");
+            || (f.style == "Regular" && f.scripts.iter().any(|script| *script != "Latn"));
         if !wanted {
             continue;
         }
@@ -168,11 +168,17 @@ pub fn install_fonts(ctx: &egui::Context) {
         defs.font_data.insert(name.clone(), std::sync::Arc::new(FontData::from_static(f.bytes)));
         names.push((f.family, f.style, name));
     }
+    names.sort_by_key(|(fam, _, _)| match *fam {
+        "Inter" => 0,
+        "BIZ UDPGothic" => 1,
+        "NanumGothic" => 2,
+        _ => 3,
+    });
     let regular: Vec<String> = names.iter().filter(|(fam, st, _)| !(*fam == "Inter" && *st != "Regular")).map(|(_, _, n)| n.clone()).collect();
-    if let Some(list) = defs.families.get_mut(&FontFamily::Proportional) {
-        for (k, n) in regular.iter().enumerate() {
-            list.insert(k, n.clone());
-        }
+    defs.families.entry(FontFamily::Proportional).or_default().splice(0..0, regular);
+    let fallback: Vec<String> = names.iter().filter(|(fam, _, _)| *fam != "Inter").map(|(_, _, n)| n.clone()).collect();
+    if let Some(list) = defs.families.get_mut(&FontFamily::Monospace) {
+        list.extend(fallback);
     }
     // A bold family for headings and selected tabs.
     let mut bold: Vec<String> = names.iter().filter(|(fam, st, _)| *fam == "Inter" && *st == "SemiBold").map(|(_, _, n)| n.clone()).collect();
@@ -191,4 +197,28 @@ pub fn font(size: f32) -> egui::FontId {
 
 pub fn to_color32(c: deckcraft_color::Rgba) -> Color32 {
     Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ui_families_cover_hangul_without_system_fonts() {
+        if !deckcraft_fonts::CRAFT_FONTS.iter().any(|f| f.family == "NanumGothic") {
+            assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "prepare the Korean font before building releases");
+            eprintln!("skipped: run scripts/prepare-korean-font.py with a craft-fonts checkout");
+            return;
+        }
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            for font in [font(13.0), bold(18.0), egui::FontId::monospace(13.0)] {
+                for ch in "안녕하세요 한글 제목 메모 ㅇㅏ".chars().filter(|c| !c.is_whitespace()) {
+                    assert!(ui.fonts_mut(|fonts| fonts.has_glyph(&font, ch)), "{font:?} lacks {ch}");
+                }
+            }
+        });
+        output.textures_delta.clear();
+    }
 }

@@ -49,5 +49,14 @@ families excluded by `crates/fonts/build.rs`:
 | Liberation Sans, Serif, Mono | OFL-1.1 | Metric-compatible stand-ins for Arial, Times New Roman, Courier New |
 | Montserrat, Lato, Open Sans, Roboto, Merriweather, Playfair Display, Poppins, Nunito Sans | OFL-1.1 | Theme fonts |
 | BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans Arabic | OFL-1.1 | Japanese and Arabic text |
+| Nanum Gothic | OFL-1.1 | Korean UI and document fallback (prepared before building) |
 
-Web (wasm32) builds embed only Inter Regular/Bold and BIZ UDPGothic Regular.
+The Korean fallback is prepared by `scripts/prepare-korean-font.py` inside craft-fonts; no font
+binaries are stored in DeckCraft. Its licence is copied into release packages by
+`packaging/common.sh`, alongside the other embedded fonts' licences.
+
+| File in craft-fonts | Author | Source / version | Licence | Use |
+|---|---|---|---|---|
+| `fonts/nanum-gothic/NanumGothic-Regular.ttf`; `fonts/nanum-gothic/OFL.txt` | NHN Corporation; Sandoll Communications | [google/fonts@9710da1eacb3be272583c3224dcb70f9da6eadbb](https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/nanumgothic); font SHA-256 `76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31` | OFL-1.1 | Korean UI and document fallback |
+
+Web (wasm32) builds embed Inter Regular/Bold and BIZ UDPGothic, Nanum Gothic and Noto Sans Arabic Regular.

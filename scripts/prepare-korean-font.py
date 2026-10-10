@@ -10,11 +10,11 @@ from pathlib import Path
 import sys
 import urllib.request
 
-SOURCE = "https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/nanumgothic"
+SOURCE = "https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/gothica1"
 RAW = SOURCE.replace("github.com", "raw.githubusercontent.com").replace("/tree/", "/")
 FILES = {
-    "NanumGothic-Regular.ttf": "76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31",
-    "OFL.txt": "eeacf16032901d0ed0456876ec77b8f0fda6b3fecec7d972f8543eb602e6c30f",
+    "GothicA1-Regular.ttf": "211151bea98098c579610ab1114bb1bfe909057207db561f357b896d076c21ac",
+    "OFL.txt": "ed95c33f80ccca002e3a360b683c43368f9c5eb024e5b992abb51af3c10b59bc",
 }
 
 
@@ -23,7 +23,7 @@ def prepare(root: Path) -> None:
     content = manifest.read_text(encoding="utf-8")  # Require an existing craft-fonts checkout.
     attribution = root / "ATTRIBUTION.md"
     credits = attribution.read_text(encoding="utf-8")
-    target = root / "fonts/nanum-gothic"
+    target = root / "fonts/gothic-a1"
     payloads = {}
     for name, checksum in FILES.items():
         path = target / name
@@ -39,19 +39,31 @@ def prepare(root: Path) -> None:
     for name, data in payloads.items():
         (target / name).write_bytes(data)
     entry = (
-        "NanumGothic | Regular | fonts/nanum-gothic/NanumGothic-Regular.ttf | Hang,Latn | "
-        f"OFL-1.1 | fonts/nanum-gothic/OFL.txt | {FILES['NanumGothic-Regular.ttf']} | {SOURCE}"
+        "Gothic A1 | Regular | fonts/gothic-a1/GothicA1-Regular.ttf | Hang,Latn | "
+        f"OFL-1.1 | fonts/gothic-a1/OFL.txt | {FILES['GothicA1-Regular.ttf']} | {SOURCE}"
     )
     # Replace our entry instead of duplicating it on subsequent runs.
-    lines = [line for line in content.splitlines() if not line.startswith(("Nanum Gothic | Regular |", "NanumGothic | Regular |"))]
+    lines = [
+        line for line in content.splitlines()
+        if not line.startswith(("Nanum Gothic | Regular |", "NanumGothic | Regular |", "Gothic A1 | Regular |"))
+    ]
     manifest.write_text("\n".join([*lines, entry]) + "\n", encoding="utf-8")
     credit = (
-        "| `fonts/nanum-gothic/NanumGothic-Regular.ttf` | Nanum Gothic Regular | "
-        f"NHN Corporation; Sandoll Communications | [{SOURCE}]({SOURCE}) | "
-        "OFL-1.1 (`fonts/nanum-gothic/OFL.txt`) |"
+        "| `fonts/gothic-a1/GothicA1-Regular.ttf` | Gothic A1 Regular | "
+        f"HanYang I&C Co., Ltd. | [{SOURCE}]({SOURCE}) | "
+        "OFL-1.1 (`fonts/gothic-a1/OFL.txt`) |"
     )
-    if "`fonts/nanum-gothic/NanumGothic-Regular.ttf`" not in credits:
-        attribution.write_text(credits.rstrip() + "\n\n" + credit + "\n", encoding="utf-8")
+    credits = "\n".join(line for line in credits.splitlines() if "`fonts/nanum-gothic/NanumGothic-Regular.ttf`" not in line)
+    if "`fonts/gothic-a1/GothicA1-Regular.ttf`" not in credits:
+        credits = credits.rstrip() + "\n\n" + credit
+    attribution.write_text(credits.rstrip() + "\n", encoding="utf-8")
+    # Replace the earlier fallback instead of embedding two Korean faces. Only remove files
+    # from our previous recipe; preserve any other local additions to that directory.
+    legacy = root / "fonts/nanum-gothic"
+    for name in ("NanumGothic-Regular.ttf", "OFL.txt"):
+        (legacy / name).unlink(missing_ok=True)
+    if legacy.is_dir() and not any(legacy.iterdir()):
+        legacy.rmdir()
     print(f"Korean fallback ready: {target}")
 
 

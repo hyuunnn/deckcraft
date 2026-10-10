@@ -419,7 +419,9 @@ impl Session {
         {
             push_undo(st, HistoryEntry { label: spec.label.to_string(), doc: old, selection: sel });
         }
-        if spec.journal && outer {
+        // Preedit is absent from the journal, so replay must also omit its ignored edits.
+        let ignored_input = matches!(id, "text.commit" | "text.deleteSurrounding") && r.get("handled").and_then(Value::as_bool) == Some(false);
+        if spec.journal && outer && !ignored_input {
             self.journal.push((id.to_string(), params.clone()));
             if self.journal.len() > 10_000 {
                 self.journal.drain(..1000);
@@ -493,3 +495,76 @@ pub(crate) fn push_undo(st: &mut DocState, e: HistoryEntry) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod journal_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn editing() -> Session {
+        let mut s = Session::with_new();
+        let id = s.doc().unwrap().current_slide().unwrap().shapes[0].id;
+        s.execute("text.set", &json!({"id": id, "text": "제목"})).unwrap();
+        s.execute("text.edit", &json!({"id": id, "at": [0, 0]})).unwrap();
+        s
+    }
+
+    fn replay(s: &Session) -> Session {
+        let mut replay = Session::new();
+        for (id, params) in &s.journal {
+            replay.execute(id, params).unwrap();
+        }
+        assert_eq!(replay.doc().unwrap().doc, s.doc().unwrap().doc);
+        assert_eq!(replay.doc().unwrap().selection, s.doc().unwrap().selection);
+        assert_eq!(replay.doc().unwrap().history.undo.len(), s.doc().unwrap().history.undo.len());
+        replay
+    }
+
+    #[test]
+    fn committed_ime_text_replays_once() {
+        let mut s = editing();
+        let journal = s.journal.len();
+        let undo = s.doc().unwrap().history.undo.len();
+        for text in ["ㅇ", "아", "안"] {
+            s.execute("text.preedit", &json!({"text": text})).unwrap();
+        }
+        s.execute("text.commit", &json!({"text": "안"})).unwrap();
+        assert_eq!(s.journal.len(), journal + 1);
+        assert_eq!(s.doc().unwrap().history.undo.len(), undo + 1);
+        let mut replay = replay(&s);
+        assert_eq!(replay.execute("text.get", &json!({})).unwrap()["text"], "안제목");
+    }
+
+    #[test]
+    fn ignored_ime_commit_cannot_insert_text_during_replay() {
+        let mut s = editing();
+        s.execute("text.preedit", &json!({"text": "안"})).unwrap();
+        s.execute("text.move", &json!({"to": "end"})).unwrap();
+        let journal = s.journal.len();
+        let undo = s.doc().unwrap().history.undo.len();
+        let doc = s.doc().unwrap().doc.clone();
+        assert_eq!(s.execute("text.commit", &json!({"text": "안"})).unwrap()["handled"], false);
+        assert_eq!(s.journal.len(), journal);
+        assert_eq!(s.doc().unwrap().history.undo.len(), undo);
+        assert!(Arc::ptr_eq(&doc, &s.doc().unwrap().doc));
+        let mut replay = replay(&s);
+        assert_eq!(replay.execute("text.get", &json!({})).unwrap()["text"], "제목");
+    }
+
+    #[test]
+    fn ignored_ime_deletion_cannot_remove_text_during_replay() {
+        let mut s = editing();
+        s.execute("text.preedit", &json!({"text": "안"})).unwrap();
+        s.execute("text.move", &json!({"to": "end"})).unwrap();
+        let journal = s.journal.len();
+        let undo = s.doc().unwrap().history.undo.len();
+        let doc = s.doc().unwrap().doc.clone();
+        assert_eq!(s.execute("text.deleteSurrounding", &json!({"beforeChars": 1, "afterChars": 0})).unwrap()["handled"], false);
+        assert_eq!(s.journal.len(), journal);
+        assert_eq!(s.doc().unwrap().history.undo.len(), undo);
+        assert!(Arc::ptr_eq(&doc, &s.doc().unwrap().doc));
+        let mut replay = replay(&s);
+        assert_eq!(replay.execute("text.get", &json!({})).unwrap()["text"], "제목");
+    }
+}

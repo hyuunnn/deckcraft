@@ -55,6 +55,7 @@ fn canvas_enables_ime_and_keeps_korean_confirmation_keys_out_of_the_document() {
 fn focused_notes_field_owns_ime_events_exclusively() {
     let ctx = egui::Context::default();
     let mut app = editor();
+    app.session.execute("text.preedit", &json!({"text": "중"})).unwrap();
     let id = egui::Id::new("notes_test");
     let mut notes = String::new();
     let mut output = ctx.run_ui(Default::default(), |ui| {
@@ -67,8 +68,78 @@ fn focused_notes_field_owns_ime_events_exclusively() {
             ui.add(egui::TextEdit::singleline(&mut notes).id(id));
         });
         output.textures_delta.clear();
+        assert!(
+            !output.platform_output.ime.unwrap().should_interrupt_composition,
+            "canvas cancellation must not interrupt the notes field's new IME session"
+        );
     }
     assert_eq!(notes, "안녕하세요");
     assert_eq!(app.session.execute("text.get", &json!({})).unwrap()["text"], "");
     assert!(app.session.composition().is_none());
+}
+
+#[test]
+fn canvas_interrupts_composition_after_target_changes_and_rejects_late_commit() {
+    let ctx = egui::Context::default();
+    let mut app = editor();
+    app.session.type_text("제목").unwrap();
+    app.session.execute("text.move", &json!({"to": "start"})).unwrap();
+    frame(&ctx, &mut app, vec![]);
+    frame(&ctx, &mut app, vec![preedit("안")]);
+    app.session.execute("text.move", &json!({"to": "end"})).unwrap();
+    let out = frame(&ctx, &mut app, vec![preedit("안녕")]);
+    assert!(out.platform_output.ime.unwrap().should_interrupt_composition);
+    let out = frame(&ctx, &mut app, vec![preedit(""), egui::Event::Ime(egui::ImeEvent::Commit("안녕".into()))]);
+    assert!(!out.platform_output.ime.unwrap().should_interrupt_composition);
+    assert_eq!(app.session.execute("text.get", &json!({})).unwrap()["text"], "제목");
+    frame(&ctx, &mut app, vec![preedit("새"), preedit(""), egui::Event::Ime(egui::ImeEvent::Commit("새".into()))]);
+    assert_eq!(app.session.execute("text.get", &json!({})).unwrap()["text"], "제목새");
+}
+
+#[test]
+fn mobile_ime_can_replace_committed_jamo_and_suggestions() {
+    let ctx = egui::Context::default();
+    let mut app = editor();
+    frame(&ctx, &mut app, vec![]);
+    for (original, count, replacement) in [("ㅇ", 1, "아"), ("tex", 3, "Texas")] {
+        app.session.execute("text.selectAll", &json!({})).unwrap();
+        frame(&ctx, &mut app, vec![egui::Event::Text(original.into())]);
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars: count, after_chars: 0 }), egui::Event::Text(replacement.into())],
+        );
+        assert_eq!(app.session.execute("text.get", &json!({})).unwrap()["text"], replacement);
+    }
+}
+
+#[test]
+fn complete_editor_keeps_canvas_ime_focus_across_preedit_frames() {
+    let ctx = egui::Context::default();
+    theme::install_fonts(&ctx);
+    let mut app = editor();
+    app.fonts_ready = true;
+    app.ui.notes = true;
+    for text in ["", "", "ㅇ", "아", "안", "안녕", "안녕하세요"] {
+        let events = if text.is_empty() { vec![] } else { vec![preedit(text)] };
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0))),
+                ..Default::default()
+            },
+            |ui| app.ui(ui),
+        );
+        out.textures_delta.clear();
+        assert!(
+            out.platform_output.ime.is_some(),
+            "IME disabled at {text:?}; focused {:?}, canvas {:?}",
+            ctx.memory(|m| m.focused()),
+            app.canvas_input_id
+        );
+        if !text.is_empty() {
+            assert!(!out.platform_output.ime.unwrap().should_interrupt_composition, "IME interrupted at {text:?}");
+            assert!(app.session.composition().is_some(), "preedit lost at {text:?}");
+        }
+    }
 }

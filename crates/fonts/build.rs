@@ -2,8 +2,8 @@
 //! `docs/integration.md`). With `CRAFT_FONTS_DIR=<checkout>` the fonts in its
 //! `fonts/latin-manifest.txt` (presentation fonts) and `fonts/manifest.txt` are embedded as
 //! `CRAFT_FONTS`, Latin first; unset, `CRAFT_FONTS` is empty. Web (wasm32) builds embed only Inter
-//! Regular/Bold, BIZ UDPGothic, Nanum Gothic and Noto Sans Arabic Regular, to stay within the web size budget. It only reads the
-//! local checkout: no network.
+//! Regular/Bold, BIZ UDPGothic and Gothic A1 Regular, to stay within the web size budget. It only
+//! reads the local checkout: no network.
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -17,7 +17,7 @@ fn main() {
     if let Some(dir) = std::env::var_os("CRAFT_FONTS_DIR").map(PathBuf::from) {
         match craft_fonts(&dir) {
             Ok(entries) => {
-                if !entries.contains("family: \"NanumGothic\"") {
+                if !entries.contains("family: \"Gothic A1\"") {
                     let message = "missing Korean fallback; run python3 scripts/prepare-korean-font.py <craft-fonts checkout>";
                     if std::env::var_os("CRAFT_FONTS_REQUIRED").is_some() {
                         println!("cargo::error={message}");
@@ -67,12 +67,7 @@ fn manifest(dir: &std::path::Path, manifest: &std::path::Path) -> Result<String,
         if EXCLUDED_FAMILIES.contains(family) {
             continue;
         }
-        if wasm
-            && !matches!(
-                (*family, *style),
-                ("BIZ UDPGothic" | "NanumGothic" | "Noto Sans Arabic", "Regular") | ("Inter", "Regular" | "Bold" | "Variable")
-            )
-        {
+        if wasm && !matches!((*family, *style), ("BIZ UDPGothic" | "Gothic A1", "Regular") | ("Inter", "Regular" | "Bold" | "Variable")) {
             continue;
         }
         let path = dir.join(file).canonicalize().map_err(|e| format!("{file}: {e}"))?;

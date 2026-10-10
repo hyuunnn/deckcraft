@@ -49,7 +49,7 @@ families excluded by `crates/fonts/build.rs`:
 | Liberation Sans, Serif, Mono | OFL-1.1 | Metric-compatible stand-ins for Arial, Times New Roman, Courier New |
 | Montserrat, Lato, Open Sans, Roboto, Merriweather, Playfair Display, Poppins, Nunito Sans | OFL-1.1 | Theme fonts |
 | BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans Arabic | OFL-1.1 | Japanese and Arabic text |
-| Nanum Gothic | OFL-1.1 | Korean UI and document fallback (prepared before building) |
+| Gothic A1 | OFL-1.1 | Korean UI and document fallback, including decomposed Hangul (prepared before building) |
 
 The Korean fallback is prepared by `scripts/prepare-korean-font.py` inside craft-fonts; no font
 binaries are stored in DeckCraft. Its licence is copied into release packages by
@@ -57,6 +57,6 @@ binaries are stored in DeckCraft. Its licence is copied into release packages by
 
 | File in craft-fonts | Author | Source / version | Licence | Use |
 |---|---|---|---|---|
-| `fonts/nanum-gothic/NanumGothic-Regular.ttf`; `fonts/nanum-gothic/OFL.txt` | NHN Corporation; Sandoll Communications | [google/fonts@9710da1eacb3be272583c3224dcb70f9da6eadbb](https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/nanumgothic); font SHA-256 `76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31` | OFL-1.1 | Korean UI and document fallback |
+| `fonts/gothic-a1/GothicA1-Regular.ttf`; `fonts/gothic-a1/OFL.txt` | HanYang I&C Co., Ltd. | [google/fonts@9710da1eacb3be272583c3224dcb70f9da6eadbb](https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/gothica1), from [hanyangfont/Gothic@599d7e34fff27a50f3e9266b753ad661d3167b91](https://github.com/hanyangfont/Gothic/tree/599d7e34fff27a50f3e9266b753ad661d3167b91); font SHA-256 `211151bea98098c579610ab1114bb1bfe909057207db561f357b896d076c21ac` | OFL-1.1 | Korean UI and document fallback |
 
-Web (wasm32) builds embed Inter Regular/Bold and BIZ UDPGothic, Nanum Gothic and Noto Sans Arabic Regular.
+Web (wasm32) builds embed Inter Regular/Bold and BIZ UDPGothic and Gothic A1 Regular.

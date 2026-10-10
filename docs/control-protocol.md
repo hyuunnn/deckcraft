@@ -36,9 +36,16 @@ and other agents; `deckcraft-cli app METHOD [JSON]` sends one request from a she
 Canvas input uses `engine.execute` with `text.preedit {text}`, `text.commit {text}` and
 `text.cancelComposition {}`. Repeated preedit updates replace a disposable canvas preview;
 the saved document, dirty flag, undo history and command journal remain unchanged. A commit
-inserts the final string once and creates one undo step. Empty preedit/commit cancels the preview
-without deleting the original selection. Moving the selection or switching documents invalidates
-a pending composition, so a late commit cannot type into the new target. Native and web input
-methods are enabled while a text-capable canvas selection owns keyboard focus; their candidate
-window is positioned at the rendered caret. Focused UI text fields (notes, dialogs) own their own
+inserts the final string once and creates one undo step. Empty preedit hides the preview while
+retaining its target for the following commit; empty commit cancels it without deleting the
+original selection. Moving the selection or switching documents invalidates a pending composition
+and interrupts the platform IME, so a late commit cannot type into the new target. Ignored commits
+are excluded from the command journal. Native and web input
+methods are enabled while a text-capable canvas selection owns keyboard focus; the rendered caret
+geometry is reported to the backend. Focused UI text fields (notes, dialogs) own their own
 IME events.
+
+`text.deleteSurrounding {beforeChars, afterChars}` supports mobile IME recomposition and corrections.
+Counts are Unicode characters outside the current selection, including paragraph breaks; the
+selected text itself is preserved. Deletion is a single undoable edit and updates any active
+composition's target and preview.

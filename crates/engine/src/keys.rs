@@ -138,6 +138,7 @@ impl Session {
 
     /// Type text: into the text being edited, or (a shape selected) start editing it.
     pub fn type_text(&mut self, text: &str) -> Result<Value> {
+        self.clear_cancelled_composition();
         let st = self.doc()?;
         if st.selection.text.is_none() {
             let Some(id) = st.selection.shapes.first().copied() else { return Ok(json!({"handled": false})) };

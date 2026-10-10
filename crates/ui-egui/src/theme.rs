@@ -160,7 +160,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     let mut names = vec![];
     for (i, f) in deckcraft_fonts::CRAFT_FONTS.iter().enumerate() {
         let wanted = (f.family == "Inter" && (f.style == "Regular" || f.style == "SemiBold" || f.style == "Bold"))
-            || (f.style == "Regular" && f.scripts.iter().any(|script| *script != "Latn"));
+            || (f.style == "Regular" && matches!(f.family, "BIZ UDPGothic" | "Gothic A1" | "Noto Sans Arabic"));
         if !wanted {
             continue;
         }
@@ -171,7 +171,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     names.sort_by_key(|(fam, _, _)| match *fam {
         "Inter" => 0,
         "BIZ UDPGothic" => 1,
-        "NanumGothic" => 2,
+        "Gothic A1" => 2,
         _ => 3,
     });
     let regular: Vec<String> = names.iter().filter(|(fam, st, _)| !(*fam == "Inter" && *st != "Regular")).map(|(_, _, n)| n.clone()).collect();
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn ui_families_cover_hangul_without_system_fonts() {
-        if !deckcraft_fonts::CRAFT_FONTS.iter().any(|f| f.family == "NanumGothic") {
+        if !deckcraft_fonts::CRAFT_FONTS.iter().any(|f| f.family == "Gothic A1") {
             assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "prepare the Korean font before building releases");
             eprintln!("skipped: run scripts/prepare-korean-font.py with a craft-fonts checkout");
             return;
@@ -214,9 +214,20 @@ mod tests {
         install_fonts(&ctx);
         let mut output = ctx.run_ui(Default::default(), |ui| {
             for font in [font(13.0), bold(18.0), egui::FontId::monospace(13.0)] {
+                // egui 0.36's has_glyph gives false negatives for a face that also supplies
+                // its replacement square. Check the actual rasterized glyphs instead.
+                let rasterized = |text: &str| {
+                    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font.clone(), Color32::WHITE));
+                    galley.rows.iter().flat_map(|row| row.glyphs.iter()).filter(|g| !g.uv_rect.is_nothing()).map(|g| g.uv_rect).collect::<Vec<_>>()
+                };
+                let replacement = rasterized("\u{10ffff}");
+                assert_eq!(replacement.len(), 1);
                 for ch in "안녕하세요 한글 제목 메모 ㅇㅏ".chars().filter(|c| !c.is_whitespace()) {
-                    assert!(ui.fonts_mut(|fonts| fonts.has_glyph(&font, ch)), "{font:?} lacks {ch}");
+                    let glyphs = rasterized(&ch.to_string());
+                    assert!(!glyphs.is_empty() && glyphs != replacement, "{font:?} lacks {ch}");
                 }
+                let nfd = "\u{110b}\u{1161}\u{11ab}\u{1102}\u{1167}\u{11bc}\u{1112}\u{1161}\u{1109}\u{1166}\u{110b}\u{116d}";
+                assert_eq!(rasterized(nfd), rasterized("안녕하세요"), "{font:?} must shape decomposed Hangul into syllables");
             }
         });
         output.textures_delta.clear();

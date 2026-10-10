@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn korean_fallback_covers_hangul_without_system_fonts() {
-        if !CRAFT_FONTS.iter().any(|f| f.family == "NanumGothic") {
+        if !CRAFT_FONTS.iter().any(|f| f.family == "Gothic A1") {
             assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "prepare the Korean fallback before release builds");
             eprintln!("skipped: run scripts/prepare-korean-font.py with a craft-fonts checkout");
             return;
@@ -214,10 +214,18 @@ mod tests {
         let db = FontDb::with_font_dirs(Vec::new());
         db.set_system_fallback(false);
         let face = db.cascade(&['안'], &[db.face(DEFAULT_FAMILY, "Regular")], "Regular");
-        assert_eq!(face.family, "NanumGothic");
-        for code in 0xAC00..=0xD7A3 {
-            assert!(char::from_u32(code).is_some_and(|c| face.covers(c)), "missing Hangul syllable U+{code:X}");
+        assert_eq!(face.family, "Gothic A1");
+        for code in (0xAC00..=0xD7A3).chain(0x1100..=0x11FF) {
+            assert!(char::from_u32(code).is_some_and(|c| face.covers(c)), "missing Hangul character U+{code:X}");
         }
         assert!(shape(&face, "안녕하세요 한글 제목과 메모", &[], |c| c).iter().all(|g| g.gid != 0));
+        // macOS filenames and pasted text can contain canonically decomposed Hangul. The
+        // cascade must choose a Korean face before the shaper can compose the syllable.
+        let nfd = "\u{110b}\u{1161}\u{11ab}"; // 안
+        let nfd_face = db.cascade(&nfd.chars().collect::<Vec<_>>(), &[db.face(DEFAULT_FAMILY, "Regular")], "Regular");
+        assert_eq!(nfd_face.family, "Gothic A1");
+        let glyphs = |text| shape(&nfd_face, text, &[], |c| c).iter().map(|g| g.gid).collect::<Vec<_>>();
+        assert_eq!(glyphs(nfd), glyphs("안"));
+        assert!(glyphs(nfd).iter().all(|gid| *gid != 0));
     }
 }

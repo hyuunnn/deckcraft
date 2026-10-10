@@ -20,6 +20,15 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(query "text.preedit", "Preview IME Text", [], None, "{text}", has_doc, preedit),
         cmd!("text.commit", "Commit IME Text", [], None, "{text}", has_doc, commit),
         cmd!(query "text.cancelComposition", "Cancel IME Text", [], None, "{}", has_doc, cancel_composition),
+        cmd!(
+            "text.deleteSurrounding",
+            "Delete Around IME Text",
+            [],
+            None,
+            "{beforeChars, afterChars} (Unicode scalar counts)",
+            has_doc,
+            delete_surrounding
+        ),
         cmd!("text.delete", "Delete Text", [], Some("Backspace"), "{dir?: backward|forward|wordBackward|wordForward}", has_text, delete),
         cmd!(noundo "text.move", "Move Insertion Point", [], None, "{to: left|right|up|down|wordLeft|wordRight|lineStart|lineEnd|paraStart|paraEnd|start|end, extend?: bool}", has_text, move_caret),
         cmd!(noundo "text.select", "Select Text", [], None, "{anchor: [p, c], caret: [p, c]}", has_text, select),
@@ -215,8 +224,14 @@ fn commit(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn cancel_composition(s: &mut Session, _p: &Value) -> Result<Value> {
-    s.composition = None;
+    s.cancel_composition();
     ok()
+}
+
+fn delete_surrounding(s: &mut Session, p: &Value) -> Result<Value> {
+    let before = p.get("beforeChars").and_then(Value::as_u64).ok_or_else(|| bad("text.deleteSurrounding", "missing or invalid `beforeChars`"))?;
+    let after = p.get("afterChars").and_then(Value::as_u64).ok_or_else(|| bad("text.deleteSurrounding", "missing or invalid `afterChars`"))?;
+    s.delete_surrounding_text(usize::try_from(before).unwrap_or(usize::MAX), usize::try_from(after).unwrap_or(usize::MAX))
 }
 
 /// Smart quotes and simple autocorrect applied to typed text.

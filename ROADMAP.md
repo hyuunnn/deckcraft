@@ -17,8 +17,9 @@ format plus PPTX), scriptable by agents (CLI, JSON control channel, MCP), and av
   basic SmartArt, groups, connectors, ink, action buttons, WordArt.
 - Text: in-place editing with caret, selection, keyboard and mouse; every Home-tab font and paragraph
   control; bullets and numbering; levels; autofit; columns; vertical text; fields; hyperlinks.
-  I18N.1: Korean UI/document fallback (Nanum Gothic, OFL); native/web IME preedit preview,
-  composition cancellation and single-step commits through engine commands.
+  I18N.1: Korean UI/document fallback (Gothic A1, OFL), including decomposed Hangul;
+  native/web IME preedit preview, composition cancellation and single-step commits through
+  engine commands. I18N.2: target-change interruption, journal replay and mobile recomposition fixes.
   Right-to-left and Arabic text: UAX #9 bidi (levels per paragraph, L1/L2 per line, mirrored
   brackets), contextual HarfRust shaping across style runs, `a:latin`/`a:ea`/`a:cs` slots with
   per-cluster fallback through theme script fonts, RTL start edge and bullets, `justLow` kashida,

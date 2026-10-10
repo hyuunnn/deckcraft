@@ -482,8 +482,12 @@ fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf: Xf, t: &To
 }
 
 /// Advertise an editable canvas to native/web backends; without this winit disables the IME
-/// and Korean keystrokes arrive as separate jamo. Candidate windows follow the rendered caret.
-fn text_input(app: &SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) {
+/// and Korean keystrokes arrive as separate jamo. Report the rendered caret to input backends.
+fn text_input(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) {
+    if app.session.composition_target_changed() {
+        ui.ctx().memory_mut(|m| m.interrupt_ime());
+        let _ = app.session.execute("text.cancelComposition", &serde_json::json!({}));
+    }
     if app.dialog.as_ref().is_some_and(|d| d.modal()) || app.palette.is_some() {
         return;
     }

@@ -616,7 +616,15 @@ impl SlideApp {
                         self.set_status(e.to_string());
                     }
                 }
+                egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => {
+                    if let Err(e) = self.session.execute("text.deleteSurrounding", &json!({"beforeChars": before_chars, "afterChars": after_chars})) {
+                        self.set_status(e.to_string());
+                    }
+                }
                 egui::Event::WindowFocused(false) => {
+                    if self.session.composition().is_some() {
+                        ctx.memory_mut(|m| m.interrupt_ime());
+                    }
                     let _ = self.session.execute("text.cancelComposition", &json!({}));
                 }
                 egui::Event::Text(t) => {
@@ -660,6 +668,9 @@ impl SlideApp {
                         continue;
                     }
                     if mods.cmd {
+                        if self.session.composition().is_some() {
+                            ctx.memory_mut(|m| m.interrupt_ime());
+                        }
                         let _ = self.session.execute("text.cancelComposition", &json!({}));
                     }
                     if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {

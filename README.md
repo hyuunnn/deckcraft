@@ -104,8 +104,9 @@ cargo run --release -p deckcraft-cli -- render --sample --all --scale 1 out/
 ```
 
 Fonts come from [craft-fonts](https://github.com/storytold/craft-fonts): clone it next to this repo
-(`../craft-fonts`) and local builds pick it up automatically. Prepare the pinned Korean fallback
-before building (the font and OFL licence stay in craft-fonts):
+(`../craft-fonts`) and local builds pick it up automatically. Prepare the pinned Gothic A1 Korean
+fallback before building (the font and OFL licence stay in craft-fonts). It covers both composed
+syllables and decomposed Hangul, including macOS filenames:
 
 ```sh
 git clone https://github.com/storytold/craft-fonts ../craft-fonts
